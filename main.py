@@ -3,9 +3,13 @@
 import httplib
 import json
 import ConfigParser
+import time
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from influxdb import InfluxDBClient
+
+
+oldValue = 0
 
 # connect and login to server
 def connectQloud(user, password):
@@ -43,12 +47,30 @@ def connectQloud(user, password):
 
 # request data from server
 def getData(apiConnection, headers, uuid):
+	global oldValue
 	# here hard coded sensor; todo: scan for sensor uuid in previous response and put uuid in the following request
 	apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a", headers=headers)
 	response = json.loads(apiConnection.getresponse().read())
 	#print "sensor data: " + str(response)
 
-	print "Wert: " + str(response['sensor']['state']['data'][1])
+	newValue = response['sensor']['state']['data'][1]
+
+	now = datetime.now()
+
+	if oldValue != 0:
+		deltaValue = newValue - oldValue[1]
+		deltaTime = (oldValue[0] - now).total_seconds()
+
+		if deltaValue > 0:
+			powerValue = deltaValue/deltaTime
+			print "Zeit: " + str(now) + "Leistung: " + powerValue
+
+			# Werte Speichern
+			oldValue = [now, newValue]
+
+	else:
+		print "Initial values stored."
+		oldValue = [now, newValue]
 
 # Main program
 if __name__ == "__main__":
@@ -69,5 +91,10 @@ if __name__ == "__main__":
 		print "Could not connect to server. Something went wrong."
 		exit()
 
-	getData(apiConnection, header, uuid1)
+	# Start the scheduler
+	sched = BlockingScheduler()
+
+	sched.add_job(lambda: getData(apiConnection, header, uuid1), 'interval', seconds=int(60))
+	sched.start()
+
 
