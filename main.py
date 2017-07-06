@@ -46,31 +46,61 @@ def connectQloud(user, password):
 	return apiConnection, headers
 
 # request data from server
-def getData(apiConnection, headers, uuid):
+def getData(user, password, uuid):
 	global oldValue
+
+	[apiConnection, headers] = connectQloud(user, password)
+
+	if apiConnection == 1:
+		print "Could not connect to server. Something went wrong."
+		exit()
+
 	# here hard coded sensor; todo: scan for sensor uuid in previous response and put uuid in the following request
-	apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a", headers=headers)
-	response = json.loads(apiConnection.getresponse().read())
+	#apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a", headers=headers)
+	#response = json.loads(apiConnection.getresponse().read())
 	#print "sensor data: " + str(response)
 
-	newValue = response['sensor']['state']['data'][1]
 
-	now = datetime.now()
+	#body = json.dumps({"from": "1499280198","to": "1499366598"})
+	#print body
+
+	apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a/data?from=1499280198&to=1499366598&count=96", headers=headers)
+	response = json.loads(apiConnection.getresponse().read())
+	print "sensor data: " + str(response)
+	for key in response['data'].keys():
+		print int(int(key)/1000)
+
+	newValue = response['sensor']['state']['data'][1]
+	measTime = response['sensor']['recv_time']
+
+	# print "Data: " + str(newValue) + " Time stamp: " + str(measTime)
+
+	#now = datetime.now()
+	lastMeasTime = datetime.fromtimestamp(measTime)
 
 	if oldValue != 0:
+		# print "Another round."
 		deltaValue = newValue - oldValue[1]
-		deltaTime = (oldValue[0] - now).total_seconds()
+		deltaTime = (lastMeasTime - oldValue[0]).total_seconds()
+
+		# print "intermediate values: " + str(deltaValue) + " " + str(deltaTime)
 
 		if deltaValue > 0:
-			powerValue = deltaValue/deltaTime
-			print "Zeit: " + str(now) + "Leistung: " + powerValue
+			print "Detected a difference between old and new value."
+			powerValue = float(deltaValue)/float(deltaTime)
+			print "Zeit: " + str(lastMeasTime) + "Leistung: " + str(powerValue)
 
 			# Werte Speichern
-			oldValue = [now, newValue]
+			print "Jetzt neue Werte speichern"
+			oldValue = [lastMeasTime, newValue]
+			print str(oldValue)
 
 	else:
 		print "Initial values stored."
-		oldValue = [now, newValue]
+		oldValue = [lastMeasTime, newValue]
+		print oldValue
+
+	apiConnection.request("DELETE", "/api/session", headers=headers)
 
 # Main program
 if __name__ == "__main__":
@@ -85,16 +115,13 @@ if __name__ == "__main__":
 
 	uuid1 = config.get('Sensor1', 'uuid')
 
-	[apiConnection, header] = connectQloud(user, password)
 
-	if apiConnection == 1:
-		print "Could not connect to server. Something went wrong."
-		exit()
+	while(1):
+		getData(user, password, uuid1)
+		time.sleep(10)
 
 	# Start the scheduler
-	sched = BlockingScheduler()
+	# sched = BlockingScheduler()
 
-	sched.add_job(lambda: getData(apiConnection, header, uuid1), 'interval', seconds=int(60))
-	sched.start()
-
-
+	# sched.add_job(lambda: getData(apiConnection, header, uuid1), 'interval', seconds=int(60))
+	# sched.start()
