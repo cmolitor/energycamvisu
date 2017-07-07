@@ -8,9 +8,6 @@ from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from influxdb import InfluxDBClient
 
-
-oldValue = 0
-
 # connect and login to server
 def connectQloud(user, password):
 	# get session information on api.cospace.de
@@ -46,59 +43,50 @@ def connectQloud(user, password):
 	return apiConnection, headers
 
 # request data from server
-def getData(user, password, uuid):
-	global oldValue
-
+def getData(user, password, uuid, starttime):
+	# connect to qloud server
 	[apiConnection, headers] = connectQloud(user, password)
 
 	if apiConnection == 1:
 		print "Could not connect to server. Something went wrong."
 		exit()
 
-	# here hard coded sensor; todo: scan for sensor uuid in previous response and put uuid in the following request
-	#apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a", headers=headers)
-	#response = json.loads(apiConnection.getresponse().read())
-	#print "sensor data: " + str(response)
-
-
-	#body = json.dumps({"from": "1499280198","to": "1499366598"})
-	#print body
-
-	apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a/data?from=1499280198&to=1499366598&count=96", headers=headers)
+	# request data from server
+	values = list()
+	#apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a/data?from=" + starttime + "&to=1499366598&order=asc&count=50000", headers=headers)
+	apiConnection.request("GET", "/api/sensor/b96f86c0-245a-11e7-a2db-00259075ae2a/data?from=" + starttime + "&count=50000", headers=headers)
 	response = json.loads(apiConnection.getresponse().read())
-	print "sensor data: " + str(response)
+	# print "sensor data: " + str(response)
+
+	# extract data
 	for key in response['data'].keys():
-		print int(int(key)/1000)
+		#print int(int(key)/1000), response['data'][str(key)][1]
+		values.append( [ int(int(key)/1000), response['data'][str(key)][1] ] )
 
-	newValue = response['sensor']['state']['data'][1]
-	measTime = response['sensor']['recv_time']
+	# sort data in ascending order
+	values.sort()
 
-	# print "Data: " + str(newValue) + " Time stamp: " + str(measTime)
+	# clean up list of values. qloud stores each reading, although the value might be the same. Thus we clean here the data
+	# Only the first occurrence of the energy value is needed
+	energyValues = list()
+	oldValue = 0
+	for x in values:
+		if x[1] > oldValue:
+			oldValue = x[1]
+			energyValues.append(x)
+		else:
+			values.remove(x)
 
-	#now = datetime.now()
-	lastMeasTime = datetime.fromtimestamp(measTime)
+	# calculate power values
+	powerValues = list()
 
-	if oldValue != 0:
-		# print "Another round."
-		deltaValue = newValue - oldValue[1]
-		deltaTime = (lastMeasTime - oldValue[0]).total_seconds()
+	for i in xrange(0, len(energyValues)-1):
+		deltaT = energyValues[i+1][0] - energyValues[i][0]
+		deltaE = energyValues[i+1][1] - energyValues[i][1]
+		powerValues.append([energyValues[i][0], float(deltaE*3600000)/deltaT])
+		# print energyValues[i][0], float(deltaE*3600000)/deltaT
 
-		# print "intermediate values: " + str(deltaValue) + " " + str(deltaTime)
-
-		if deltaValue > 0:
-			print "Detected a difference between old and new value."
-			powerValue = float(deltaValue)/float(deltaTime)
-			print "Zeit: " + str(lastMeasTime) + "Leistung: " + str(powerValue)
-
-			# Werte Speichern
-			print "Jetzt neue Werte speichern"
-			oldValue = [lastMeasTime, newValue]
-			print str(oldValue)
-
-	else:
-		print "Initial values stored."
-		oldValue = [lastMeasTime, newValue]
-		print oldValue
+	print powerValues
 
 	apiConnection.request("DELETE", "/api/session", headers=headers)
 
@@ -114,11 +102,9 @@ if __name__ == "__main__":
 	password = config.get('General', 'pass')
 
 	uuid1 = config.get('Sensor1', 'uuid')
+	starttime = config.get('Sensor1', 'start')
 
-
-	while(1):
-		getData(user, password, uuid1)
-		time.sleep(10)
+	getData(user, password, uuid1, starttime)
 
 	# Start the scheduler
 	# sched = BlockingScheduler()
