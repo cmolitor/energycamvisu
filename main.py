@@ -4,6 +4,8 @@ import httplib
 import json
 import ConfigParser
 import time
+import numpy as np
+import pandas as pd
 from datetime import datetime
 from apscheduler.schedulers.blocking import BlockingScheduler
 from influxdb import InfluxDBClient
@@ -77,6 +79,8 @@ def getData(user, password, uuid, starttime):
 		else:
 			values.remove(x)
 
+	#print energyValues
+
 	# calculate power values
 	powerValues = list()
 
@@ -86,7 +90,35 @@ def getData(user, password, uuid, starttime):
 		powerValues.append([energyValues[i][0], float(deltaE*3600000)/deltaT])
 		# print energyValues[i][0], float(deltaE*3600000)/deltaT
 
-	print powerValues
+	#print len(energyValues), len(powerValues)
+
+	# transform data to equidistant list of values; here: 15 minutes, 900s
+	starttime = powerValues[0][0]
+	endtime = powerValues[-1][0]
+	#print powerValues[0][0], powerValues[-1][0]
+	equiTimestamps = np.arange(starttime,endtime+900,900)
+	# print equiTimestamps
+
+	for x in powerValues:
+		x[0] = datetime.fromtimestamp(int(x[0])).strftime('%Y-%m-%d %H:%M:%S')
+
+	df = pd.DataFrame(powerValues, columns=['Zeit', 'Leistung'])
+
+
+	df = df.set_index('Zeit')
+	df.index = pd.to_datetime(df.index)
+
+	print df
+	print ""
+
+	s = df.Leistung.resample('15min', fill_method="ffill")
+	#s = s.interpolate()
+	#print df.index
+	#s = df.resample('H', axis=1)['Leistung']
+
+	print s
+
+	s.to_csv("test.csv", sep='\t', encoding='utf-8')
 
 	apiConnection.request("DELETE", "/api/session", headers=headers)
 
